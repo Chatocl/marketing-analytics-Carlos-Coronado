@@ -1,3 +1,4 @@
+
 """
 Laboratorio Final — Starbucks Rewards
 PUNTO DE PARTIDA para su propia app de Streamlit. Complete los `# TODO`.
@@ -58,7 +59,7 @@ def valor_de_la_politica(test_df, seleccionados):
 
 # --- Título y carga de datos ---
 st.title("Laboratorio Final — Starbucks Rewards")
-st.caption("TODO: escriban aquí una frase sobre qué decisión de negocio ayuda a tomar esta app.")
+st.caption("Identifica qué porcentaje de clientes conviene contactar para maximizar las ganancias de la campaña.")
 
 df = load_data()
 
@@ -113,6 +114,26 @@ ax.plot(xs, ys, color=GREEN, label="T-learner")
 ax.plot([0, 100], [0, ys[-1]], "--",
         color=GRAY, label="Al azar")
 
+# --- Punto del porcentaje seleccionado ---
+indice = xs.index(pct_contactar)
+qini_seleccionado = ys[indice]
+
+ax.scatter(
+    pct_contactar,
+    qini_seleccionado,
+    color=ORANGE,
+    s=100,
+    zorder=5,
+    label="Porcentaje seleccionado"
+)
+
+ax.axvline(
+    x=pct_contactar,
+    color=ORANGE,
+    linestyle=":",
+    alpha=0.6
+)
+
 ax.set_xlabel("Porcentaje de clientes contactados")
 ax.set_ylabel("Respuestas incrementales")
 ax.legend()
@@ -148,8 +169,14 @@ tabla_politicas = pd.DataFrame(resultados)
 
 st.subheader("Tabla de políticas")
 
+# --- Resaltar fila seleccionada ---
+def resaltar_fila(fila):
+    if fila["Porcentaje"] == pct_contactar:
+        return ["background-color: #DFF2E6"] * len(fila)
+    return [""] * len(fila)
+
 st.dataframe(
-    tabla_politicas.round(2),
+    tabla_politicas.round(2).style.apply(resaltar_fila, axis=1),
     hide_index=True
 )
 
