@@ -11,6 +11,7 @@ Correr con:  streamlit run streamlit_starter.py
 
 import pandas as pd
 import numpy as np
+from pathlib import Path
 import streamlit as st
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LogisticRegression
@@ -26,7 +27,8 @@ FEATURES = ["recency_days", "frequency", "monetary", "email_open_rate", "tenure_
 
 @st.cache_data
 def load_data():
-    return pd.read_csv("data/uplift_campaign.csv")
+    ruta = Path(__file__).resolve().parent / "data" / "uplift_campaign.csv"
+    return pd.read_csv(ruta)
 
 
 @st.cache_data
