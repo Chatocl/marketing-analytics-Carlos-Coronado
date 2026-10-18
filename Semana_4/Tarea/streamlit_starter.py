@@ -126,7 +126,11 @@ with tab1:
     cid = st.number_input("ID de cliente", min_value=int(ids.min()), max_value=int(ids.max()), value=14, step=1)
     fila = int(np.where(ids == cid)[0][0])
     x_vec = X[fila].copy()
-    st.write("Ya compró:", [productos[j] for j in np.where(x_vec > 0)[0]])
+    comprados = [productos[j] for j in np.where(x_vec > 0)[0]]
+
+    st.write("**Productos que ya compró:**")
+
+    st.write(", ".join(comprados) if comprados else "Sin historial de compras")
 
     # TODO 5: muestren las 3 recomendaciones con su puntaje y, para cada una, el "porque"
     #         - por ítem: "porque compró X (similitud 0.87)"
@@ -157,7 +161,7 @@ with tab1:
 
         elif metodo == "Filtrado por ítem":
 
-            comprados = np.where(x_vec > 0)[0]
+            comprados = np.where((x_vec > 0) & (np.arange(len(x_vec)) != COL_AGUA))[0]
 
             mas_similar = comprados[
                 np.argmax(S_it[comprados, j])
