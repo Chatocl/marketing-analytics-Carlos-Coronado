@@ -275,4 +275,3 @@ with tab2:
         tabla.set_index("Recomendador")["Cobertura"]
     )
 
-    st.info("Reemplacen cada TODO con su propio código. Revisen el notebook del laboratorio para la lógica exacta de cada pieza.")
