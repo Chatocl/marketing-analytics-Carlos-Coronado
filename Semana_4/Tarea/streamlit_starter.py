@@ -96,7 +96,11 @@ def top3(scores, x_vec):
 
 # --- Título ---
 st.title("☕ Recomendador de productos")
-st.caption("TODO: escriban aquí una frase sobre qué decisión de negocio ayuda a tomar esta app.")
+st.caption(
+    "Esta aplicación ayuda a identificar qué productos recomendar a cada cliente "
+    "y comparar qué modelo ofrece mejores resultados, para tomar decisiones "
+    "de marketing que mejoren las ventas y la experiencia del cliente."
+)
 
 # TODO 4: barra lateral con los controles interactivos (mínimo UNO): un selector del método
 #         (st.selectbox) y un slider con el número de vecinos K (st.slider)
