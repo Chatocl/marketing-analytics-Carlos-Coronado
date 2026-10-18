@@ -12,6 +12,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from sklearn.metrics.pairwise import cosine_similarity
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
 
 st.set_page_config(page_title="Recomendador — Laboratorio", page_icon="☕", layout="wide")
 
@@ -19,14 +24,30 @@ VERDE = "#00704A"
 NARANJA = "#C4512F"
 GRIS = "#9A988E"
 
+def ruta_csv(nombre):
+    rutas = [
+        BASE_DIR / "data" / nombre,
+        BASE_DIR.parent / "data" / nombre,
+        BASE_DIR.parent.parent / "data" / nombre,
+        BASE_DIR / nombre,
+    ]
+
+    for ruta in rutas:
+        if ruta.is_file():
+            return ruta
+
+    raise FileNotFoundError(
+        f"No se encontró {nombre}. "
+        f"Se buscaron estas rutas: {[str(r) for r in rutas]}"
+    )
 
 @st.cache_data
 def cargar():
-    catalogo = pd.read_csv("data/catalogo.csv")
-    hist = pd.read_csv("data/ordenes_historial.csv")
-    hold = pd.read_csv("data/ordenes_holdout.csv")
-    exp = pd.read_csv("data/experimento.csv")
-    clientes = pd.read_csv("data/clientes.csv")
+    catalogo = pd.read_csv(ruta_csv("catalogo.csv"))
+    hist = pd.read_csv(ruta_csv("ordenes_historial.csv"))
+    hold = pd.read_csv(ruta_csv("ordenes_holdout.csv"))
+    exp = pd.read_csv(ruta_csv("experimento.csv"))
+    clientes = pd.read_csv(ruta_csv("clientes.csv"))
     productos = list(catalogo["item"])
     M = (pd.crosstab(hist["customer_id"], hist["item"]) > 0).astype(int).reindex(
         index=clientes["customer_id"], columns=productos, fill_value=0)
