@@ -1,6 +1,4 @@
-"""Tarea de segmentación de clientes: ejecutar con streamlit run app.py."""
-import io
-import warnings
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -19,12 +17,43 @@ NUMERICAS = ["ingreso_anual", "gasto_total", "compras_tienda", "compras_web",
 CATEGORICAS = ["educacion", "estado_civil"]
 
 
+@st.cache_data(show_spinner=False)
+def leer_incluido(nombre):
+    ruta = Path(__file__).resolve().parent / nombre
+    return leer_csv(ruta)
+
+
 def leer_csv(archivo):
     datos = pd.read_csv(archivo)
-    # Los archivos originales de Orange pueden traer prefijos de tipo.
     datos.columns = [str(c).replace("mD#", "").replace("D#", "").replace("m#", "").strip() for c in datos.columns]
-    # Soportar variantes de nombres originadas al exportar desde Orange.
+    # Orange guarda en algunos CSV dos filas de metadatos (tipos y roles).
+    if len(datos) >= 2 and str(datos.iloc[0].get("id_cliente", "")).strip().lower() in {"continuous", "string", "discrete"}:
+        datos = datos.iloc[2:].copy().reset_index(drop=True)
+    for col in NUMERICAS + ["id_cliente", "Silhouette"]:
+        if col in datos:
+            datos[col] = pd.to_numeric(datos[col], errors="coerce")
     return datos
+
+
+def enriquecer_orange(segmentos, original):
+    """Reponer dólares reales desde la base original, sin cambiar el Cluster de Orange."""
+    if "id_cliente" not in segmentos or "id_cliente" not in original:
+        return segmentos, False
+    columnas = [c for c in original.columns if c != "id_cliente"]
+    base = original[["id_cliente"] + columnas].copy().drop_duplicates("id_cliente")
+    base["id_cliente"] = pd.to_numeric(base["id_cliente"], errors="coerce")
+    salida = segmentos.copy()
+    salida["id_cliente"] = pd.to_numeric(salida["id_cliente"], errors="coerce")
+    agregar = [c for c in columnas if c not in salida or c in NUMERICAS or c == "respondio_ultima_campana"]
+    merged = salida.merge(base[["id_cliente"] + agregar], on="id_cliente", how="left", suffixes=("", "_original"), validate="many_to_one")
+    for c in agregar:
+        orig = c + "_original"
+        if orig in merged:
+            merged[c] = merged[orig].combine_first(merged[c])
+            merged = merged.drop(columns=orig)
+    if merged["gasto_total"].isna().all():
+        return segmentos, False
+    return merged, True
 
 
 def perfil(datos, variable):
@@ -109,47 +138,66 @@ def comparar(df, k, eps, min_pts, gamma):
 
 visor, comp = st.tabs(["Visor de grupos", "Comparador de técnicas"])
 
+# Datos incluidos con la aplicación; los uploads siempre tienen prioridad.
+RUTA_BASE = Path(__file__).resolve().parent
+ARCHIVO_ORANGE = "clientes_con_cluster.csv"
+ARCHIVO_ORIGINAL = "clientes_retail.csv"
+
 with visor:
     st.subheader("Visor de segmentos desde CSV")
-    archivo = st.file_uploader("Sube clientes_con_cluster.csv o segmentos_notebook.csv", type="csv", key="visor")
+    archivo = st.file_uploader("Opcional: subir otro CSV de segmentación", type="csv", key="visor")
+    disponible = (RUTA_BASE / ARCHIVO_ORANGE).exists()
+    original_disponible = (RUTA_BASE / ARCHIVO_ORIGINAL).exists()
     if archivo is not None:
+        st.info("Mostrando archivo subido: " + archivo.name)
+    elif disponible:
+        st.success("Mostrando automáticamente la segmentación de Orange incluida en la aplicación.")
+    else:
+        st.info("Sube un CSV de Orange o del notebook; no hay un archivo predeterminado en el repositorio.")
+    if archivo is not None or disponible:
         try:
-            df = leer_csv(archivo)
+            df = leer_csv(archivo) if archivo is not None else leer_incluido(ARCHIVO_ORANGE).copy()
+            original_subido = st.file_uploader("Opcional: CSV original correspondiente para recuperar gastos e ingresos reales", type="csv", key="original_visor")
+            original_para_unir = leer_csv(original_subido) if original_subido is not None else (leer_incluido(ARCHIVO_ORIGINAL).copy() if original_disponible else None)
+            if original_para_unir is not None and "id_cliente" in df:
+                df, combinado = enriquecer_orange(df, original_para_unir)
+                if combinado:
+                    st.caption("Ingresos y gastos recuperados en valores originales mediante id_cliente; se conservan los clústeres del CSV elegido.")
+                else:
+                    st.warning("No se pudieron recuperar los valores originales; revisa que ambos CSV compartan el mismo id_cliente.")
             candidatos = [c for c in df if c.lower() in {"cluster", "seg_kmeans", "seg_gmm", "seg_kproto", "seg_ward", "seg_dbscan"}]
             candidatos += [c for c in df if c not in candidatos and ("cluster" in c.lower() or c.startswith("seg_"))]
             if not candidatos:
                 st.error("El archivo debe contener una columna de grupos, como Cluster o seg_kmeans.")
             elif "gasto_total" not in df:
-                st.error("El CSV necesita gasto_total en unidades originales para calcular el perfil.")
+                st.error("El CSV necesita gasto_total en dólares para calcular el perfil.")
             else:
+                if df["gasto_total"].dropna().between(-10, 10).all() and df["gasto_total"].mean() < 5:
+                    st.warning("El gasto parece estar normalizado. Sube la base original para mostrar resultados en US$.")
                 variable = st.selectbox("Columna que define el segmento", candidatos)
                 tabla = perfil(df, variable)
                 a, b, c = st.columns(3)
                 a.metric("Clientes", f"{len(df):,}")
                 b.metric("Segmentos", len(tabla))
                 c.metric("Gasto total (US$)", f"{pd.to_numeric(df['gasto_total'], errors='coerce').sum():,.2f}")
-                fig = px.bar(tabla, x="Segmento", y="clientes", color="Segmento", text="clientes",
-                             title="Cantidad de clientes por segmento")
+                fig = px.bar(tabla, x="Segmento", y="clientes", color="Segmento", text="clientes", title="Cantidad de clientes por segmento")
                 fig.update_layout(showlegend=False)
                 st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(tabla.rename(columns={"clientes":"Clientes", "porcentaje_clientes":"% clientes",
-                                                       "gasto_medio":"Gasto medio (US$)", "porcentaje_gasto":"% gasto total",
-                                                       "gasto_total":"Gasto agregado (US$)"}).round(2), use_container_width=True, hide_index=True)
+                st.dataframe(tabla.rename(columns={"clientes":"Clientes", "porcentaje_clientes":"% clientes", "gasto_medio":"Gasto medio (US$)", "porcentaje_gasto":"% gasto total", "gasto_total":"Gasto agregado (US$)"}).round(2), use_container_width=True, hide_index=True)
                 if {"ingreso_anual", "gasto_total"}.issubset(df):
                     graf = df.copy()
                     graf[variable] = graf[variable].astype(str)
-                    st.plotly_chart(px.scatter(graf, x="ingreso_anual", y="gasto_total", color=variable,
-                                               hover_data=[c for c in ["id_cliente"] if c in graf],
-                                               title="Ingreso anual frente a gasto total"), use_container_width=True)
-                st.download_button("Descargar perfil CSV", tabla.to_csv(index=False).encode("utf-8-sig"),
-                                   "perfil_segmentos.csv", "text/csv")
+                    st.plotly_chart(px.scatter(graf, x="ingreso_anual", y="gasto_total", color=variable, hover_data=[c for c in ["id_cliente"] if c in graf], title="Ingreso anual frente a gasto total (US$)"), use_container_width=True)
+                st.download_button("Descargar perfil CSV", tabla.to_csv(index=False).encode("utf-8-sig"), "perfil_segmentos.csv", "text/csv")
         except Exception as exc:
             st.error(f"No se pudo leer el CSV: {exc}")
 
 with comp:
     st.subheader("Comparador de cinco técnicas")
-    st.write("Sube el CSV original con las nueve variables numéricas, educación y estado civil. Se utiliza la misma base y la misma estandarización de variables numéricas para todas las técnicas.")
-    archivo_comp = st.file_uploader("CSV de clientes para comparar", type="csv", key="comparador")
+    st.write("Usa la base original incluida automáticamente o sube otro CSV con las nueve variables numéricas, educación y estado civil. Se aplica la misma estandarización numérica en las cinco técnicas.")
+    archivo_comp = st.file_uploader("Opcional: subir otro CSV de clientes para comparar", type="csv", key="comparador")
+    if archivo_comp is None and original_disponible:
+        st.success("Base de clientes original cargada por defecto (2,205 clientes).")
     co1, co2, co3, co4 = st.columns(4)
     with co1:
         k = st.slider("Grupos para k-means, Ward, GMM y k-prototypes", 2, 8, 3)
@@ -160,9 +208,9 @@ with comp:
     with co4:
         gamma = st.number_input("K-prototypes gamma", min_value=0.01, value=1.0, step=0.1)
     st.caption("En k-prototypes, gamma pondera las diferencias categóricas; el valor 1 es configurable, no una equivalencia automática con los demás métodos.")
-    if archivo_comp is not None and st.button("Ajustar y comparar técnicas", type="primary"):
+    if (archivo_comp is not None or original_disponible) and st.button("Ajustar y comparar técnicas", type="primary"):
         try:
-            datos = leer_csv(archivo_comp)
+            datos = leer_csv(archivo_comp) if archivo_comp is not None else leer_incluido(ARCHIVO_ORIGINAL).copy()
             with st.spinner("Ajustando los cinco modelos…"):
                 comparacion, acuerdos, asignaciones = comparar(datos, k, eps, min_pts, gamma)
             st.markdown("#### Resultados por técnica")
