@@ -1,5 +1,7 @@
+google-genai
+python-dotenv
 streamlit
 pandas
 numpy
-nltk
 scikit-learn
+openpyxl
